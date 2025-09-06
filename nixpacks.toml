@@ -1,0 +1,12 @@
+# nixpacks.toml
+
+# Loyihani qurish bosqichi (setup phase)
+[phases.setup]
+# Ubuntu/Debian paketlarini o'rnatish
+# Bu qator Railway'ga FFmpeg'ni o'rnatishni buyuradi
+aptPkgs = ["ffmpeg"]
+
+# Loyihani ishga tushirish bosqichi (start phase)
+[start]
+# Botni ishga tushirish buyrug'i
+cmd = "python bot.py"
