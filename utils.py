@@ -23,36 +23,31 @@ def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = 
     Raises:
         Exception: Agar yuklashda xatolik yuz bersa.
     """
-    # Yuklash papkasini yaratish (agar mavjud bo'lmasa)
     os.makedirs(download_dir, exist_ok=True)
 
-    # Fayl nomini formatlash uchun shablon
     output_template = os.path.join(download_dir, '%(id)s.%(ext)s')
 
     ydl_opts = {
         'logger': logger,
         'outtmpl': output_template,
-        'noplaylist': True,  # Faqat bitta videoni yuklash, playlistni emas
+        'noplaylist': True,
         'nocheckcertificate': True,
-        'ignoreerrors': True,
+        'ignoreerrors': True, # Bu xatolikni oldini olishga yordam beradi, lekin None qaytarishi mumkin
     }
 
-    # Agar maksimal hajm belgilangan bo'lsa, uni qo'shamiz
     if max_size:
         ydl_opts['max_filesize'] = max_size
 
     if is_audio:
-        # Audio (mp3) yuklash uchun sozlamalar
         ydl_opts.update({
             'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '192',  # 192 kbps sifati
+                'preferredquality': '192',
             }],
         })
     else:
-        # Video (mp4) yuklash uchun sozlamalar
         ydl_opts.update({
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
              'postprocessors': [{
@@ -63,25 +58,24 @@ def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = 
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Faylni yuklashdan oldin u haqida ma'lumot olamiz
             info_dict = ydl.extract_info(url, download=False)
+            
+            # --- XATOLIKNI TUZATISH: info_dict'ni tekshirish ---
+            if not info_dict:
+                raise Exception("Bu havola bo'yicha ma'lumot topilmadi. Iltimos, havolani tekshiring.")
+            
             video_id = info_dict.get('id')
             
             if not video_id:
-                raise Exception("Media haqida ma'lumot olib bo'lmadi.")
+                raise Exception("Media ID sini aniqlab bo'lmadi.")
             
-            # Mediani yuklash
             logger.info(f"Downloading media with id: {video_id} from {url}")
             ydl.download([url])
             
-            # Yuklangan faylning nomini aniqlash
-            # Audio yuklanganda kengaytma .mp3 bo'ladi
             expected_ext = 'mp3' if is_audio else info_dict.get('ext', 'mp4')
             file_path = os.path.join(download_dir, f"{video_id}.{expected_ext}")
 
-            # Agar fayl kutilgan nom bilan topilmasa (format o'zgargan bo'lishi mumkin)
             if not os.path.exists(file_path):
-                # Papkadagi fayllar orasidan to'g'ri ID bilan boshlanganini qidiramiz
                 found_files = [f for f in os.listdir(download_dir) if f.startswith(video_id)]
                 if found_files:
                     file_path = os.path.join(download_dir, found_files[0])
@@ -94,7 +88,6 @@ def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = 
 
     except yt_dlp.utils.DownloadError as e:
         logger.error(f"yt-dlp yuklashda xatolik: {e}")
-        # Foydalanuvchiga tushunarliroq xabar berish
         if "File is larger than the maximum" in str(e):
              raise Exception(f"Fayl hajmi ruxsat etilgan {max_size // 1024 // 1024}MB dan katta.")
         raise Exception("Bu havoladan yuklab bo'lmadi. Iltimos, URL manzilini tekshiring.")
