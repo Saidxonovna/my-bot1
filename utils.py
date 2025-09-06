@@ -4,25 +4,12 @@ import os
 import logging
 import yt_dlp
 
-# Jurnallashni (logging) sozlash
 logger = logging.getLogger(__name__)
 
+# COOKIE FAYLNING NOMI
+COOKIE_FILE = 'cookies.txt'
+
 def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = None):
-    """
-    Berilgan URL manzildan yt-dlp yordamida media yuklaydi.
-
-    Args:
-        url (str): Yuklab olinadigan media havolasi.
-        is_audio (bool): Faqat audio yuklash kerak bo'lsa True (mp3 formatida).
-        download_dir (str): Yuklangan faylni saqlash uchun papka.
-        max_size (int, optional): Baytlarda ruxsat etilgan maksimal fayl hajmi. Standart None.
-
-    Returns:
-        str: Yuklangan faylning to'liq yo'li (path).
-
-    Raises:
-        Exception: Agar yuklashda xatolik yuz bersa.
-    """
     os.makedirs(download_dir, exist_ok=True)
 
     output_template = os.path.join(download_dir, '%(id)s.%(ext)s')
@@ -32,12 +19,22 @@ def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = 
         'outtmpl': output_template,
         'noplaylist': True,
         'nocheckcertificate': True,
-        'ignoreerrors': True, # Bu xatolikni oldini olishga yordam beradi, lekin None qaytarishi mumkin
+        'ignoreerrors': True,
     }
+
+    # --- 1. COOKIE FAYLNI QO'SHISH ---
+    # Agar cookies.txt fayli mavjud bo'lsa, uni sozlamalarga qo'shamiz
+    if os.path.exists(COOKIE_FILE):
+        ydl_opts['cookiefile'] = COOKIE_FILE
+        logger.info(f"'{COOKIE_FILE}' fayli topildi va ishlatilmoqda.")
+    else:
+        logger.warning(f"'{COOKIE_FILE}' fayli topilmadi. Ba'zi saytlarda yuklash ishlamasligi mumkin.")
 
     if max_size:
         ydl_opts['max_filesize'] = max_size
-
+    
+    # --- 2. FORMATNI SODDALASHTIRISH ---
+    # Bu ko'proq saytlarda ishlash imkonini beradi
     if is_audio:
         ydl_opts.update({
             'format': 'bestaudio/best',
@@ -49,7 +46,7 @@ def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = 
         })
     else:
         ydl_opts.update({
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo+bestaudio/best', # Eng yaxshi video va audioni birlashtirish
              'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
                 'preferedformat': 'mp4',
@@ -60,7 +57,6 @@ def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=False)
             
-            # --- XATOLIKNI TUZATISH: info_dict'ni tekshirish ---
             if not info_dict:
                 raise Exception("Bu havola bo'yicha ma'lumot topilmadi. Iltimos, havolani tekshiring.")
             
@@ -88,10 +84,7 @@ def download_media(url: str, is_audio: bool, download_dir: str, max_size: int = 
 
     except yt_dlp.utils.DownloadError as e:
         logger.error(f"yt-dlp yuklashda xatolik: {e}")
-        if "File is larger than the maximum" in str(e):
-             raise Exception(f"Fayl hajmi ruxsat etilgan {max_size // 1024 // 1024}MB dan katta.")
         raise Exception("Bu havoladan yuklab bo'lmadi. Iltimos, URL manzilini tekshiring.")
     except Exception as e:
         logger.error(f"Kutilmagan xatolik yuz berdi: {e}")
         raise e
-
