@@ -4,12 +4,14 @@ import os
 import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-# Yordamchi funksiyani utils.py dan import qilamiz
-from utils import download_media
+# Yordamchi funksiyalarni utils.py dan import qilamiz
+from utils import download_media, upload_to_gofile # <--- upload_to_gofile qo'shildi
 
 TOKEN = os.getenv("BOT_TOKEN")
-# MAX_FILE_SIZE = 49 * 1024 * 1024 # 50 MB cheklovi olib tashlandi
-MAX_FILE_SIZE = None # Cheklovni olib tashlash uchun None qiymatini o'rnatamiz
+# Cheklovni olib tashlaymiz, chunki endi o'zimiz fayl hajmini tekshiramiz
+MAX_FILE_SIZE = None 
+# Telegramning 50MB lik cheklovi (xavfsizlik uchun 49MB olamiz)
+TELEGRAM_LIMIT = 49 * 1024 * 1024 
 
 # Jurnallashni (logging) sozlash
 logging.basicConfig(
@@ -20,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 # --- Bot Buyruqlari (Handlers) ---
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/start buyrug'i uchun javob."""
     user = update.effective_user
@@ -28,14 +29,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Assalomu alaykum, {user.mention_html()}!\n\n"
         "Men YouTube, Instagram, TikTok, Facebook va Pinterest'dan media fayllar yuklay olaman.\n\n"
         "Shunchaki kerakli havolani yuboring. 🎬\n\n"
+        "Fayl hajmi 50MB dan kichik bo'lsa to'g'ridan-to'g'ri, katta bo'lsa havola (link) ko'rinishida yuboriladi.\n\n"
         "YouTubedan audio (mp3) yuklash uchun esa quyidagi formatdan foydalaning:\n"
         "<code>/audio &lt;youtube_havolasi&gt;</code>"
     )
 
-
+# ######################################################################
+# ## ESKI process_link FUNKSIYASINI O'CHIRIB, O'RNIGA MANA SHUNI QO'YING ##
+# ######################################################################
 async def process_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Havola kelganda uni qayta ishlaydigan asosiy funksiya.
+    Fayl hajmini tekshirib, to'g'ridan-to'g'ri yoki havola orqali yuboradi.
     """
     is_audio = update.message.text.startswith('/audio')
 
@@ -47,7 +52,6 @@ async def process_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         url = update.message.text
 
-    # Qo'llab-quvvatlanadigan saytlar ro'yxatiga Pinterest qo'shildi
     supported_sites = ["youtube.com", "youtu.be",
                        "tiktok.com", "instagram.com", "facebook.com",
                        "pinterest.com", "pin.it"]
@@ -68,19 +72,32 @@ async def process_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         download_dir = f"downloads/{update.effective_chat.id}"
         # `download_media` funksiyasini chaqirish
-        file_path = download_media(
-            url, is_audio, download_dir, max_size=MAX_FILE_SIZE)
+        file_path = download_media(url, is_audio, download_dir, max_size=MAX_FILE_SIZE)
+        
+        if not file_path:
+             raise Exception("Faylni yuklab bo'lmadi (None qiymat qaytdi).")
 
-        await status_message.edit_text("📤 Fayl yuborilmoqda...")
+        file_size = os.path.getsize(file_path)
 
-        with open(file_path, 'rb') as media_file:
-            if is_audio:
-                await update.message.reply_audio(media_file, read_timeout=120, write_timeout=120)
-            # Pinterest va boshqa saytlardan kelgan media video yoki rasm bo'lishi mumkin
-            # Shuning uchun fayl kengaytmasini tekshirib yuborish yaxshiroq,
-            # lekin hozircha soddalik uchun hammasini video deb faraz qilamiz.
+        # Fayl hajmini tekshirish
+        if file_size < TELEGRAM_LIMIT:
+            # Fayl kichik, to'g'ridan-to'g'ri yuboramiz
+            await status_message.edit_text("📤 Fayl yuborilmoqda...")
+            with open(file_path, 'rb') as media_file:
+                if is_audio:
+                    await update.message.reply_audio(media_file, read_timeout=120, write_timeout=120)
+                else:
+                    await update.message.reply_video(media_file, read_timeout=120, write_timeout=120)
+        else:
+            # Fayl katta, GoFile.io ga yuklab, havola yuboramiz
+            await status_message.edit_text(f" FAYL HAJMI KATTA ({file_size // 1024 // 1024} MB).\n📤 GoFile.io ga yuklanmoqda...")
+            
+            download_link = upload_to_gofile(file_path)
+            
+            if download_link:
+                await update.message.reply_text(f"✅ Fayl muvaffaqiyatli yuklandi!\n\nYuklab olish uchun havola:\n{download_link}")
             else:
-                await update.message.reply_video(media_file, read_timeout=120, write_timeout=120)
+                await update.message.reply_text("❌ Faylni GoFile.io ga yuklashda xatolik yuz berdi.")
 
         await status_message.delete()
     except Exception as e:
